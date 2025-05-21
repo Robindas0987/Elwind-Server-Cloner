@@ -1,15 +1,19 @@
 import discord
 from colorama import Fore, init, Style
 
+init(autoreset=True)  # Ensure color resets after each print
+
 
 def print_add(message):
     print(f'{Fore.GREEN}[+]{Style.RESET_ALL} {message}')
 
+
 def print_delete(message):
     print(f'{Fore.RED}[-]{Style.RESET_ALL} {message}')
 
+
 def print_warning(message):
-    print(f'{Fore.RED}[WARNING]{Style.RESET_ALL} {message}')
+    print(f'{Fore.YELLOW}[WARNING]{Style.RESET_ALL} {message}')
 
 
 def print_error(message):
@@ -19,24 +23,19 @@ def print_error(message):
 class Clone:
     @staticmethod
     async def roles_delete(guild_to: discord.Guild):
-            for role in guild_to.roles:
-                try:
-                    if role.name != "@everyone":
-                        await role.delete()
-                        print_delete(f"Deleted Role: {role.name}")
-                except discord.Forbidden:
-                    print_error(f"Error While Deleting Role: {role.name}")
-                except discord.HTTPException:
-                    print_error(f"Unable to Delete Role: {role.name}")
+        for role in guild_to.roles:
+            try:
+                if role.name != "@everyone":
+                    await role.delete()
+                    print_delete(f"Deleted Role: {role.name}")
+            except discord.Forbidden:
+                print_error(f"Permission error deleting role: {role.name}")
+            except discord.HTTPException:
+                print_error(f"HTTP error deleting role: {role.name}")
 
     @staticmethod
     async def roles_create(guild_to: discord.Guild, guild_from: discord.Guild):
-        roles = []
-        role: discord.Role
-        for role in guild_from.roles:
-            if role.name != "@everyone":
-                roles.append(role)
-        roles = roles[::-1]
+        roles = [r for r in reversed(guild_from.roles) if r.name != "@everyone"]
         for role in roles:
             try:
                 await guild_to.create_role(
@@ -46,11 +45,11 @@ class Clone:
                     hoist=role.hoist,
                     mentionable=role.mentionable
                 )
-                print_add(f"Created Role {role.name}")
+                print_add(f"Created Role: {role.name}")
             except discord.Forbidden:
-                print_error(f"Error While Creating Role: {role.name}")
+                print_error(f"Permission error creating role: {role.name}")
             except discord.HTTPException:
-                print_error(f"Unable to Create Role: {role.name}")
+                print_error(f"HTTP error creating role: {role.name}")
 
     @staticmethod
     async def channels_delete(guild_to: discord.Guild):
@@ -59,113 +58,88 @@ class Clone:
                 await channel.delete()
                 print_delete(f"Deleted Channel: {channel.name}")
             except discord.Forbidden:
-                print_error(f"Error While Deleting Channel: {channel.name}")
+                print_error(f"Permission error deleting channel: {channel.name}")
             except discord.HTTPException:
-                print_error(f"Unable To Delete Channel: {channel.name}")
+                print_error(f"HTTP error deleting channel: {channel.name}")
 
     @staticmethod
     async def categories_create(guild_to: discord.Guild, guild_from: discord.Guild):
-        channels = guild_from.categories
-        channel: discord.CategoryChannel
-        new_channel: discord.CategoryChannel
-        for channel in channels:
+        for category in guild_from.categories:
             try:
-                overwrites_to = {}
-                for key, value in channel.overwrites.items():
-                    role = discord.utils.get(guild_to.roles, name=key.name)
-                    overwrites_to[role] = value
-                new_channel = await guild_to.create_category(
-                    name=channel.name,
-                    overwrites=overwrites_to)
-                await new_channel.edit(position=channel.position)
-                print_add(f"Created Category: {channel.name}")
+                overwrites_to = {
+                    discord.utils.get(guild_to.roles, name=role.name): perms
+                    for role, perms in category.overwrites.items()
+                    if discord.utils.get(guild_to.roles, name=role.name)
+                }
+                new_category = await guild_to.create_category(
+                    name=category.name,
+                    overwrites=overwrites_to
+                )
+                await new_category.edit(position=category.position)
+                print_add(f"Created Category: {category.name}")
             except discord.Forbidden:
-                print_error(f"Error While Deleting Category: {channel.name}")
+                print_error(f"Permission error creating category: {category.name}")
             except discord.HTTPException:
-                print_error(f"Unable To Delete Category: {channel.name}")
+                print_error(f"HTTP error creating category: {category.name}")
 
     @staticmethod
     async def channels_create(guild_to: discord.Guild, guild_from: discord.Guild):
-        channel_text: discord.TextChannel
-        channel_voice: discord.VoiceChannel
-        category = None
-        for channel_text in guild_from.text_channels:
+        # Text channels
+        for channel in guild_from.text_channels:
             try:
-                for category in guild_to.categories:
-                    try:
-                        if category.name == channel_text.category.name:
-                            break
-                    except AttributeError:
-                        print_warning(f"Channel {channel_text.name} doesn't have any category!")
-                        category = None
-                        break
+                category = None
+                if channel.category:
+                    category = discord.utils.get(guild_to.categories, name=channel.category.name)
 
-                overwrites_to = {}
-                for key, value in channel_text.overwrites.items():
-                    role = discord.utils.get(guild_to.roles, name=key.name)
-                    overwrites_to[role] = value
-                try:
-                    new_channel = await guild_to.create_text_channel(
-                        name=channel_text.name,
-                        overwrites=overwrites_to,
-                        position=channel_text.position,
-                        topic=channel_text.topic,
-                        slowmode_delay=channel_text.slowmode_delay,
-                        nsfw=channel_text.nsfw)
-                except:
-                    new_channel = await guild_to.create_text_channel(
-                        name=channel_text.name,
-                        overwrites=overwrites_to,
-                        position=channel_text.position)
-                if category is not None:
+                overwrites_to = {
+                    discord.utils.get(guild_to.roles, name=role.name): perms
+                    for role, perms in channel.overwrites.items()
+                    if discord.utils.get(guild_to.roles, name=role.name)
+                }
+
+                kwargs = {
+                    'name': channel.name,
+                    'overwrites': overwrites_to,
+                    'position': channel.position,
+                    'topic': channel.topic,
+                    'slowmode_delay': channel.slowmode_delay,
+                    'nsfw': channel.nsfw
+                }
+
+                new_channel = await guild_to.create_text_channel(**kwargs)
+                if category:
                     await new_channel.edit(category=category)
-                print_add(f"Created Text Channel: {channel_text.name}")
-            except discord.Forbidden:
-                print_error(f"Error While Creating Text Channel: {channel_text.name}")
-            except discord.HTTPException:
-                print_error(f"Unable To Creating Text Channel: {channel_text.name}")
-            except:
-                print_error(f"Error While Creating Text Channel: {channel_text.name}")
+                print_add(f"Created Text Channel: {channel.name}")
+            except Exception as e:
+                print_error(f"Error creating text channel '{channel.name}': {e}")
 
-        category = None
-        for channel_voice in guild_from.voice_channels:
+        # Voice channels
+        for channel in guild_from.voice_channels:
             try:
-                for category in guild_to.categories:
-                    try:
-                        if category.name == channel_voice.category.name:
-                            break
-                    except AttributeError:
-                        print_warning(f"Channel {channel_voice.name} doesn't have any category!")
-                        category = None
-                        break
+                category = None
+                if channel.category:
+                    category = discord.utils.get(guild_to.categories, name=channel.category.name)
 
-                overwrites_to = {}
-                for key, value in channel_voice.overwrites.items():
-                    role = discord.utils.get(guild_to.roles, name=key.name)
-                    overwrites_to[role] = value
-                try:
-                    new_channel = await guild_to.create_voice_channel(
-                        name=channel_voice.name,
-                        overwrites=overwrites_to,
-                        position=channel_voice.position,
-                        bitrate=channel_voice.bitrate,
-                        user_limit=channel_voice.user_limit,
-                        )
-                except:
-                    new_channel = await guild_to.create_voice_channel(
-                        name=channel_voice.name,
-                        overwrites=overwrites_to,
-                        position=channel_voice.position)
-                if category is not None:
+                overwrites_to = {
+                    discord.utils.get(guild_to.roles, name=role.name): perms
+                    for role, perms in channel.overwrites.items()
+                    if discord.utils.get(guild_to.roles, name=role.name)
+                }
+
+                kwargs = {
+                    'name': channel.name,
+                    'overwrites': overwrites_to,
+                    'position': channel.position,
+                    'bitrate': channel.bitrate,
+                    'user_limit': channel.user_limit
+                }
+
+                new_channel = await guild_to.create_voice_channel(**kwargs)
+                if category:
                     await new_channel.edit(category=category)
-                print_add(f"Created Voice Channel: {channel_voice.name}")
-            except discord.Forbidden:
-                print_error(f"Error While Creating Voice Channel: {channel_voice.name}")
-            except discord.HTTPException:
-                print_error(f"Unable To Creating Voice Channel: {channel_voice.name}")
-            except:
-                print_error(f"Error While Creating Voice Channel: {channel_voice.name}")
-
+                print_add(f"Created Voice Channel: {channel.name}")
+            except Exception as e:
+                print_error(f"Error creating voice channel '{channel.name}': {e}")
 
     @staticmethod
     async def emojis_delete(guild_to: discord.Guild):
@@ -174,39 +148,39 @@ class Clone:
                 await emoji.delete()
                 print_delete(f"Deleted Emoji: {emoji.name}")
             except discord.Forbidden:
-                print_error(f"Error While Deleting Emoji{emoji.name}")
+                print_error(f"Permission error deleting emoji: {emoji.name}")
             except discord.HTTPException:
-                print_error(f"Error While Deleting Emoji {emoji.name}")
+                print_error(f"HTTP error deleting emoji: {emoji.name}")
 
     @staticmethod
     async def emojis_create(guild_to: discord.Guild, guild_from: discord.Guild):
-        emoji: discord.Emoji
         for emoji in guild_from.emojis:
             try:
-                emoji_image = await emoji.url.read()
-                await guild_to.create_custom_emoji(
-                    name=emoji.name,
-                    image=emoji_image)
-                print_add(f"Created Emoji {emoji.name}")
+                image_data = await emoji.read()  # Correct for modern discord.py
+                await guild_to.create_custom_emoji(name=emoji.name, image=image_data)
+                print_add(f"Created Emoji: {emoji.name}")
             except discord.Forbidden:
-                print_error(f"Error While Creating Emoji {emoji.name} ")
+                print_error(f"Permission error creating emoji: {emoji.name}")
             except discord.HTTPException:
-                print_error(f"Error While Creating Emoji {emoji.name}")
+                print_error(f"HTTP error creating emoji: {emoji.name}")
+            except Exception as e:
+                print_error(f"General error creating emoji {emoji.name}: {e}")
 
     @staticmethod
     async def guild_edit(guild_to: discord.Guild, guild_from: discord.Guild):
         try:
+            icon_data = None
             try:
-                icon_image = await guild_from.icon_url.read()
-            except discord.errors.DiscordException:
-                print_error(f"Can't read icon image from {guild_from.name}")
-                icon_image = None
-            await guild_to.edit(name=f'{guild_from.name}')
-            if icon_image is not None:
+                icon_data = await guild_from.icon.read()
+            except discord.DiscordException:
+                print_error(f"Failed to read icon from {guild_from.name}")
+
+            await guild_to.edit(name=guild_from.name)
+            if icon_data:
                 try:
-                    await guild_to.edit(icon=icon_image)
-                    print_add(f"Guild Icon Changed: {guild_to.name}")
-                except:
-                    print_error(f"Error While Changing Guild Icon: {guild_to.name}")
+                    await guild_to.edit(icon=icon_data)
+                    print_add(f"Changed Guild Icon: {guild_to.name}")
+                except Exception as e:
+                    print_error(f"Error setting icon: {e}")
         except discord.Forbidden:
-            print_error(f"Error While Changing Guild Icon: {guild_to.name}")
+            print_error(f"Permission error editing guild: {guild_to.name}")
